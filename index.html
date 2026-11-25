@@ -1,0 +1,901 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Grid Home Monitor - Dynamic Tariff Edition</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-slate-100 font-sans text-slate-800">
+    <header class="bg-indigo-800 text-white shadow-lg sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 py-3 flex flex-col md:flex-row justify-between items-center">
+            <div>
+                <h1 class="text-xl font-bold flex items-center gap-2">
+                    <i class="fa-solid fa-bolt-lightning text-yellow-400"></i> Smart Grid Home Management & Anomaly Detection
+                </h1>
+                <p class="text-xs text-indigo-200">Memantau Penggunaan Beban dan Beban Lebih pada Rumah</p>
+            </div>
+            <div class="flex items-center gap-3 mt-3 md:mt-0">
+                <div id="grid-status-badge" class="px-4 py-1.5 rounded-full text-xs font-semibold bg-emerald-500 text-white flex items-center gap-2 shadow">
+                    <span class="w-2.5 h-2.5 bg-white rounded-full animate-pulse"></span>
+                    Sistem Normal
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto px-4 py-6">
+        <div id="alert-box" class="hidden mb-6 bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded-lg shadow-md flex flex-col md:flex-row justify-between items-start md:items-center">
+            <div class="flex items-center gap-3">
+                <i class="fa-solid fa-triangle-exclamation text-2xl text-red-600"></i>
+                <div>
+                    <strong class="font-bold">PERINGATAN ANOMALI / OVERLOAD TERDETEKSI!</strong>
+                    <p class="text-sm" id="alert-message">Beban melampaui batas kapasitas.</p>
+                </div>
+            </div>
+            <button onclick="runMitigation()" class="mt-3 md:mt-0 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-xs font-bold shadow transition flex items-center gap-2">
+                <i class="fa-solid fa-shield-halved"></i> Jalankan Mitigasi Otomatis (Load Shedding)
+            </button>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+            <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+                <p class="text-xs text-slate-500 font-medium">Total Daya Digunakan</p>
+                <div class="flex items-baseline gap-2 mt-1">
+                    <span id="total-power" class="text-2xl font-extrabold text-slate-900">0</span>
+                    <span class="text-slate-600 text-sm font-semibold">Watt</span>
+                </div>
+                <div class="w-full bg-slate-200 rounded-full h-2 mt-3">
+                    <div id="power-bar" class="bg-indigo-600 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
+                </div>
+                <div class="flex justify-between items-center mt-2 text-xs text-slate-400">
+                    <span>Batas: <strong id="max-capacity-label">1300</strong> VA</span>
+                    <span id="capacity-percent">0%</span>
+                </div>
+            </div>
+
+            <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+                <p class="text-xs text-slate-500 font-medium">Estimasi Biaya (Per Jam)</p>
+                <div class="flex items-baseline gap-1 mt-1">
+                    <span id="est-cost" class="text-2xl font-extrabold text-emerald-600">Rp 0</span>
+                </div>
+                <p class="text-xs text-slate-400 mt-2" id="tariff-label">Tarif: Rp 1.444,70 / kWh</p>
+            </div>
+
+            <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+                <p class="text-xs text-slate-500 font-medium mb-1">Golongan Daya PLN Rumah</p>
+                <select id="capacity-select" onchange="changeCapacity()" class="w-full bg-slate-50 border border-slate-300 text-slate-700 text-xs rounded-lg p-2 focus:ring-indigo-500 focus:border-indigo-500 mb-2">
+                    <option value="450">450 VA (Subsidi)</option>
+                    <option value="900">900 VA (Subsidi)</option>
+                    <option value="900-non">900 VA (Non-Subsidi)</option>
+                    <option value="1300" selected>1300 VA</option>
+                    <option value="2200">2200 VA</option>
+                    <option value="3500">3500 VA</option>
+                    <option value="5500">5500 VA ke atas</option>
+                </select>
+                <div class="flex gap-2">
+                    <button onclick="openRoomModal()" class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white px-2 py-1.5 rounded text-xs font-medium transition shadow-sm">
+                        <i class="fa-solid fa-plus"></i> Tambah Ruang
+                    </button>
+                    <button onclick="resetToDefaultData()" class="bg-slate-200 hover:bg-slate-300 text-slate-700 px-2 py-1.5 rounded text-xs font-medium transition" title="Reset Data Awal">
+                        Reset
+                    </button>
+                </div>
+            </div>
+
+            <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col justify-between">
+                <div>
+                    <p class="text-xs text-slate-500 font-medium">Lokasi Overload / Anomali</p>
+                    <div id="error-location-box" class="mt-2 text-sm font-bold text-emerald-600 flex items-center gap-2">
+                        <i class="fa-solid fa-circle-check"></i> Tidak ada gangguan
+                    </div>
+                </div>
+                <p class="text-[10px] text-slate-400 mt-2">Sistem otomatis mendeteksi ruangan penyebab lonjakan beban.</p>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+            <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-200 lg:col-span-2">
+                <h3 class="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2">
+                    <i class="fa-solid fa-chart-line text-indigo-600"></i> Grafik Riwayat Perubahan Daya Simulasi (Watt)
+                </h3>
+                <div class="h-64 relative">
+                    <canvas id="powerChart"></canvas>
+                </div>
+            </div>
+            <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex flex-col">
+                <h3 class="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2">
+                    <i class="fa-solid fa-clock-rotate-left text-indigo-600"></i> Log Activity
+                </h3>
+                <div class="overflow-y-auto flex-1 max-h-60 border border-slate-100 rounded-lg p-2 bg-slate-50" id="log-container">
+                    <div class="text-xs text-slate-400 text-center py-4">Belum ada aktivitas tercatat.</div>
+                </div>
+            </div>
+        </div>
+
+        <section class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+            <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-200 lg:col-span-2">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+                    <div>
+                        <h3 class="text-sm font-bold text-slate-700"><i class="fa-solid fa-chart-pie text-indigo-600 mr-2"></i>Kontribusi Daya per Ruangan</h3>
+                        <p class="text-[11px] text-slate-400">Perbandingan daya aktif setiap ruangan</p>
+                    </div>
+                    <span class="text-[10px] text-slate-400">Ambang beban tinggi: 800 W/ruangan</span>
+                </div>
+                <div class="h-56 relative"><canvas id="roomChart"></canvas></div>
+            </div>
+
+            <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
+                <h3 class="text-sm font-bold text-slate-700 mb-1"><i class="fa-solid fa-sliders text-indigo-600 mr-2"></i>Pengaturan Simulasi</h3>
+                <p class="text-[11px] text-slate-400 mb-3">Mode otomatis hanya menambahkan sampel grafik, bukan mengubah alat secara acak.</p>
+                <div class="flex items-center justify-between gap-3 mb-3">
+                    <span class="text-xs text-slate-600">Auto-monitor (5 detik)</span>
+                    <button id="auto-monitor-btn" onclick="toggleAutoMonitor()" class="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-semibold">Mulai</button>
+                </div>
+                <div class="border-t border-slate-100 pt-3">
+                    <p class="text-xs font-semibold text-slate-700 mb-1">Kebijakan load shedding</p>
+                    <p class="text-[11px] text-slate-500">Beban non-esensial diputus dari prioritas terendah terlebih dahulu. Prioritas 1 diputus lebih awal.</p>
+                </div>
+                <div class="border-t border-slate-100 pt-3 mt-3">
+                    <p class="text-xs font-semibold text-slate-700">Estimasi energi</p>
+                    <div class="grid grid-cols-2 gap-2 mt-2">
+                        <div class="bg-slate-50 rounded-lg p-2">
+                            <p class="text-[10px] text-slate-500">Proyeksi 24 jam</p>
+                            <p id="daily-energy" class="text-sm font-bold text-slate-800">0 kWh</p>
+                            <p id="daily-cost" class="text-[10px] text-emerald-600">Rp 0</p>
+                        </div>
+                        <div class="bg-slate-50 rounded-lg p-2">
+                            <p class="text-[10px] text-slate-500">Proyeksi 30 hari</p>
+                            <p id="monthly-energy" class="text-sm font-bold text-slate-800">0 kWh</p>
+                            <p id="monthly-cost" class="text-[10px] text-emerald-600">Rp 0</p>
+                        </div>
+                    </div>
+                    <p class="text-[10px] text-slate-400 mt-2">Asumsi daya saat ini konstan selama 24 jam. Bukan tagihan aktual.</p>
+                </div>
+            </div>
+        </section>
+
+        <section class="bg-white p-5 rounded-xl shadow-sm border border-slate-200 mb-6">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+                <div>
+                    <h3 class="text-sm font-bold text-slate-700"><i class="fa-solid fa-plug-circle-bolt text-indigo-600 mr-2"></i>Kontribusi Peralatan Aktif</h3>
+                    <p class="text-[11px] text-slate-400">Urutan berdasarkan konsumsi daya terbesar</p>
+                </div>
+                <span id="active-appliance-count" class="text-xs text-slate-500">0 alat aktif</span>
+            </div>
+            <div id="appliance-breakdown" class="grid grid-cols-1 md:grid-cols-2 gap-2"></div>
+        </section>
+
+        <div class="flex justify-between items-center mb-4">
+            <h2 class="text-lg font-bold text-slate-800 flex items-center gap-2">
+                <i class="fa-solid fa-house-chimney text-indigo-600"></i> Manajemen Grup Ruangan & Alat Rumah Tangga
+            </h2>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6" id="room-container"></div>
+    </main>
+    <div id="roomModal" class="fixed inset-0 bg-black/50 hidden z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-xl max-w-md w-full p-6 shadow-xl">
+            <h3 class="text-base font-bold text-slate-800 mb-4 flex items-center gap-2">
+                <i class="fa-solid fa-folder-plus text-indigo-600"></i> Tambah Grup Ruangan Baru
+            </h3>
+            <div class="mb-3">
+                <label class="block text-xs font-medium text-slate-600 mb-1">Nama Ruangan</label>
+                <input type="text" id="newRoomName" placeholder="Contoh: Garasi / Teras" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs focus:ring-indigo-500 focus:border-indigo-500">
+            </div>
+            <div class="mb-4">
+                <label class="block text-xs font-medium text-slate-600 mb-1">Pilih Icon FontAwesome</label>
+                <select id="newRoomIcon" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs">
+                    <option value="fa-kitchen-set">Dapur (Kitchen)</option>
+                    <option value="fa-bed">Kamar Tidur (Bed)</option>
+                    <option value="fa-couch">Ruang Tamu (Couch)</option>
+                    <option value="fa-car">Garasi (Car)</option>
+                    <option value="fa-bath">Kamar Mandi (Bath)</option>
+                    <option value="fa-tree">Teras</option>
+                    <option value="fa-house">Area Lain</option>
+                </select>
+            </div>
+            <div class="flex justify-end gap-2">
+                <button type="button" onclick="closeRoomModal()" class="bg-slate-200 hover:bg-slate-300 text-slate-700 px-4 py-2 rounded-lg text-xs font-medium">Batal</button>
+                <button type="button" onclick="saveNewRoom()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-xs font-medium">Simpan Ruangan</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="applianceModal" class="fixed inset-0 bg-black/50 hidden z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-xl max-w-md w-full p-6 shadow-xl">
+            <h3 class="text-base font-bold text-slate-800 mb-4 flex items-center gap-2">
+                <i class="fa-solid fa-plug text-indigo-600"></i> Tambah Perangkat ke <span id="targetRoomName" class="text-indigo-600"></span>
+            </h3>
+            <input type="hidden" id="targetRoomId">
+            <div class="mb-3">
+                <label class="block text-xs font-medium text-slate-600 mb-1">Nama Peralatan</label>
+                <input type="text" id="newAppName" placeholder="Contoh: Setrika, Mesin Cuci" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs">
+            </div>
+            <div class="mb-3">
+                <label class="block text-xs font-medium text-slate-600 mb-1">Daya (Watt)</label>
+                <input type="number" id="newAppPower" placeholder="Contoh: 300" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs">
+            </div>
+            <div class="mb-4 flex items-center gap-2">
+                <input type="checkbox" id="newAppEssential" class="rounded text-indigo-600">
+                <label for="newAppEssential" class="text-xs text-slate-600 font-medium">Peralatan Esensial (Tidak dimatikan saat mitigasi otomatis)</label>
+            </div>
+            <div class="mb-4">
+                <label for="newAppPriority" class="block text-xs font-medium text-slate-600 mb-1">Prioritas Load Shedding</label>
+                <select id="newAppPriority" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs">
+                    <option value="1">Prioritas 1 (Diputus lebih awal)</option>
+                    <option value="2" selected>Prioritas 2 (Menengah)</option>
+                    <option value="3">Prioritas 3 (Diputus terakhir)</option>
+                </select>
+            </div>
+            <div class="flex justify-end gap-2">
+                <button type="button" onclick="closeAppModal()" class="bg-slate-200 hover:bg-slate-300 text-slate-700 px-4 py-2 rounded-lg text-xs font-medium">Batal</button>
+                <button type="button" onclick="saveNewAppliance()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-xs font-medium">Tambah Alat</button>
+            </div>
+        </div>
+    </div>
+
+    <footer class="text-center py-6 text-xs text-slate-400 border-t border-slate-200 mt-12 bg-white">
+        Smart Grid Simulation (Kelompok 7) &copy; 2026 | Simulasi perangkat lunak, bukan alat ukur listrik aktual
+    </footer>
+
+    <script>
+        const STORAGE_KEY = 'smart_grid_rooms';
+        const DEFAULT_CAPACITY = '1300';
+
+        const tariffMap = {
+            '450': { capacity: 450, tariff: 415 },
+            '900': { capacity: 900, tariff: 605 },
+            '900-non': { capacity: 900, tariff: 1352 },
+            '1300': { capacity: 1300, tariff: 1444.70 },
+            '2200': { capacity: 2200, tariff: 1444.70 },
+            '3500': { capacity: 3500, tariff: 1699.53 },
+            '5500': { capacity: 5500, tariff: 1699.53 }
+        };
+
+        const defaultRooms = [
+            {
+                id: 'dapur',
+                name: 'Dapur',
+                icon: 'fa-kitchen-set',
+                appliances: [
+                    { name: 'Kulkas', power: 150, active: true, essential: true, priority: 3 },
+                    { name: 'Microwave', power: 800, active: false, essential: false, priority: 2 },
+                    { name: 'Dispenser', power: 350, active: true, essential: true, priority: 3 }
+                ]
+            },
+            {
+                id: 'kamar',
+                name: 'Kamar Utama',
+                icon: 'fa-bed',
+                appliances: [
+                    { name: 'AC Kamar', power: 500, active: true, essential: false, priority: 1 },
+                    { name: 'Lampu & Charger', power: 50, active: true, essential: true, priority: 3 }
+                ]
+            },
+            {
+                id: 'tamu',
+                name: 'Ruang Tamu',
+                icon: 'fa-couch',
+                appliances: [
+                    { name: 'AC Ruang Tamu', power: 600, active: false, essential: false, priority: 1 },
+                    { name: 'Lampu Utama', power: 60, active: true, essential: true, priority: 3 }
+                ]
+            }
+        ];
+
+        function cloneDefaults() {
+            return JSON.parse(JSON.stringify(defaultRooms));
+        }
+
+        function loadRooms() {
+            try {
+                const raw = localStorage.getItem(STORAGE_KEY);
+                const parsed = raw ? JSON.parse(raw) : null;
+                return Array.isArray(parsed) ? parsed : cloneDefaults();
+            } catch (error) {
+                console.warn('Data lokal tidak dapat dibaca. Memakai konfigurasi awal.', error);
+                return cloneDefaults();
+            }
+        }
+
+        let rooms = loadRooms();
+        let maxCapacity = tariffMap[DEFAULT_CAPACITY].capacity;
+        let currentTariff = tariffMap[DEFAULT_CAPACITY].tariff;
+        let logs = [];
+        let autoMonitorTimer = null;
+        let powerChart, roomChart;
+
+        function escapeHTML(value) {
+            return String(value ?? '').replace(/[&<>"']/g, char => ({
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#39;'
+            }[char]));
+        }
+
+        function jsArg(value) {
+            return JSON.stringify(String(value)).replace(/"/g, '&quot;');
+        }
+
+        function formatRupiah(value) {
+            return 'Rp ' + Math.round(value).toLocaleString('id-ID');
+        }
+
+        function getTotalPower() {
+            return rooms.reduce((sum, room) =>
+                sum + (room.appliances || []).reduce((n, app) =>
+                    n + (app.active ? Number(app.power) || 0 : 0), 0), 0);
+        }
+
+        function getRoomPower(room) {
+            return (room.appliances || []).reduce((sum, app) =>
+                sum + (app.active ? Number(app.power) || 0 : 0), 0);
+        }
+
+        function initCharts() {
+            if (typeof Chart === 'undefined') {
+                document.getElementById('powerChart').parentElement.innerHTML =
+                    '<p class="text-xs text-red-500">Chart.js tidak dapat dimuat. Periksa koneksi internet.</p>';
+                document.getElementById('roomChart').parentElement.innerHTML =
+                    '<p class="text-xs text-red-500">Chart.js tidak dapat dimuat. Periksa koneksi internet.</p>';
+                return;
+            }
+
+            powerChart = new Chart(document.getElementById('powerChart').getContext('2d'), {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Total Daya (Watt)',
+                        data: [],
+                        borderColor: '#4f46e5',
+                        backgroundColor: 'rgba(79,70,229,.1)',
+                        borderWidth: 2,
+                        fill: true,
+                        tension: .3
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: { y: { beginAtZero: true } },
+                    plugins: { legend: { display: false } }
+                }
+            });
+
+            roomChart = new Chart(document.getElementById('roomChart').getContext('2d'), {
+                type: 'doughnut',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        data: [],
+                        backgroundColor: ['#4f46e5', '#0d9488', '#f59e0b', '#e11d48', '#8b5cf6', '#64748b']
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { position: 'bottom' } }
+                }
+            });
+        }
+
+        function saveData() {
+            try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(rooms));
+            } catch (error) {
+                console.warn('Penyimpanan lokal gagal:', error);
+            }
+        }
+
+        function addLog(message, type = 'info') {
+            logs.unshift({
+                time: new Date().toLocaleTimeString('id-ID'),
+                message,
+                type
+            });
+
+            if (logs.length > 20) logs.pop();
+
+            const container = document.getElementById('log-container');
+            container.replaceChildren();
+
+            logs.forEach(log => {
+                const row = document.createElement('div');
+                row.className = 'mb-2 pb-2 border-b border-slate-100 text-xs';
+
+                const time = document.createElement('span');
+                time.className = 'text-slate-400 font-mono';
+                time.textContent = '[' + log.time + '] ';
+
+                const msg = document.createElement('span');
+                msg.className = 'px-1.5 py-0.5 rounded font-medium ' +
+                    (log.type === 'danger' ? 'text-red-600 bg-red-50' :
+                    log.type === 'success' ? 'text-emerald-600 bg-emerald-50' :
+                    'text-slate-600 bg-slate-100');
+                msg.textContent = log.message;
+
+                row.append(time, msg);
+                container.append(row);
+            });
+        }
+
+        function changeCapacity(shouldLog = true) {
+            const selected = document.getElementById('capacity-select').value;
+            const config = tariffMap[selected] || tariffMap[DEFAULT_CAPACITY];
+
+            maxCapacity = config.capacity;
+            currentTariff = config.tariff;
+
+            document.getElementById('max-capacity-label').textContent = maxCapacity;
+            document.getElementById('tariff-label').textContent =
+                `Tarif asumsi: ${formatRupiah(currentTariff)} / kWh`;
+
+            if (powerChart) {
+                powerChart.options.scales.y.max = Math.max(maxCapacity + 500, getTotalPower() + 200);
+                powerChart.update();
+            }
+
+            if (shouldLog) {
+                addLog(`Golongan daya diubah menjadi ${maxCapacity} VA. Tarif asumsi ${currentTariff} per kWh.`);
+            }
+
+            renderApp();
+        }
+
+        function updateHistory(totalPower) {
+            if (!powerChart) return;
+
+            const labels = powerChart.data.labels;
+            const values = powerChart.data.datasets[0].data;
+
+            labels.push(new Date().toLocaleTimeString('id-ID'));
+            values.push(totalPower);
+
+            while (labels.length > 11) {
+                labels.shift();
+                values.shift();
+            }
+
+            powerChart.options.scales.y.max = Math.max(maxCapacity + 500, totalPower + 200);
+            powerChart.update();
+        }
+
+        function renderRoomChart() {
+            if (!roomChart) return;
+
+            roomChart.data.labels = rooms.map(room => room.name);
+            roomChart.data.datasets[0].data = rooms.map(getRoomPower);
+            roomChart.update();
+        }
+        function renderBreakdown() {
+            const active = [];
+
+            rooms.forEach(room => {
+                (room.appliances || []).forEach(app => {
+                    if (app.active) {
+                        active.push({
+                            name: app.name,
+                            room: room.name,
+                            power: Number(app.power) || 0
+                        });
+                    }
+                });
+            });
+
+            active.sort((a, b) => b.power - a.power);
+
+            document.getElementById('active-appliance-count').textContent =
+                active.length + ' alat aktif';
+
+            const root = document.getElementById('appliance-breakdown');
+            root.replaceChildren();
+
+            if (!active.length) {
+                root.innerHTML = '<p class="text-xs text-slate-400">Belum ada peralatan aktif.</p>';
+                return;
+            }
+
+            active.forEach(app => {
+                const item = document.createElement('div');
+                item.className = 'rounded-lg bg-slate-50 p-2 flex items-center justify-between gap-3';
+
+                const left = document.createElement('div');
+                left.className = 'min-w-0';
+
+                const name = document.createElement('p');
+                name.className = 'text-xs font-semibold text-slate-700 truncate';
+                name.textContent = app.name;
+
+                const room = document.createElement('p');
+                room.className = 'text-[10px] text-slate-400';
+                room.textContent = app.room;
+
+                const power = document.createElement('span');
+                power.className = 'text-xs font-bold text-indigo-600 whitespace-nowrap';
+                power.textContent = app.power + ' W';
+
+                left.append(name, room);
+                item.append(left, power);
+                root.append(item);
+            });
+        }
+
+        function renderApp(addSample = true) {
+            const container = document.getElementById('room-container');
+            container.replaceChildren();
+
+            let totalPower = 0;
+            let overloadedRoom = null;
+
+            rooms.forEach(room => {
+                room.appliances = Array.isArray(room.appliances) ? room.appliances : [];
+
+                room.appliances.forEach(app => {
+                    app.power = Math.max(0, Number(app.power) || 0);
+                    if (app.priority == null) app.priority = 2;
+                });
+
+                const roomPower = getRoomPower(room);
+                totalPower += roomPower;
+
+                const roomOver = roomPower > 800;
+                if (roomOver && !overloadedRoom) overloadedRoom = room.name;
+
+                const card = document.createElement('article');
+                card.className = `bg-white rounded-xl shadow-sm border ${roomOver ? 'border-red-300' : 'border-slate-200'} p-4 flex flex-col justify-between`;
+
+                const appsHTML = room.appliances.map((app, index) => `
+                    <div class="flex items-center justify-between py-1.5 border-b border-slate-100 last:border-none gap-2">
+                        <div class="flex items-center gap-2 min-w-0">
+                            <span class="w-2 h-2 rounded-full ${app.active ? 'bg-emerald-500' : 'bg-slate-300'}"></span>
+                            <div class="min-w-0">
+                                <span class="text-xs text-slate-700 font-medium">${escapeHTML(app.name)}</span>
+                                ${app.essential
+                                    ? '<span class="text-[9px] bg-indigo-50 text-indigo-600 px-1 rounded ml-1">Esensial</span>'
+                                    : `<select aria-label="Prioritas load shedding" onchange="changePriority(${jsArg(room.id)},${index},this.value)" class="text-[9px] bg-amber-50 text-amber-700 rounded px-1 ml-1 border-0">
+                                        <option value="1" ${Number(app.priority) === 1 ? 'selected' : ''}>Prioritas 1</option>
+                                        <option value="2" ${Number(app.priority) === 2 ? 'selected' : ''}>Prioritas 2</option>
+                                        <option value="3" ${Number(app.priority) === 3 ? 'selected' : ''}>Prioritas 3</option>
+                                    </select>`
+                                }
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-2 shrink-0">
+                            <span class="text-[11px] text-slate-500 font-mono">${app.power}W</span>
+                            <button onclick="toggleAppliance(${jsArg(room.id)},${index})" class="text-[10px] px-2 py-0.5 rounded font-medium ${app.active ? 'bg-red-50 text-red-600' : 'bg-indigo-50 text-indigo-600'}">
+                                ${app.active ? 'On' : 'Off'}
+                            </button>
+                            <button onclick="deleteAppliance(${jsArg(room.id)},${index})" class="text-slate-400 hover:text-red-600 text-[10px] px-1" aria-label="Hapus alat">
+                                <i class="fa-solid fa-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                `).join('');
+
+                card.innerHTML = `
+                    <div>
+                        <div class="flex justify-between items-center mb-2 gap-2">
+                            <h3 class="font-bold text-slate-800 text-sm flex items-center gap-2 min-w-0">
+                                <i class="fa-solid ${escapeHTML(room.icon || 'fa-house')} text-indigo-600"></i>
+                                <span class="truncate">${escapeHTML(room.name)}</span>
+                            </h3>
+                            <div class="flex items-center gap-2 shrink-0">
+                                <span class="px-2 py-0.5 ${roomOver ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'} text-[10px] font-semibold rounded">
+                                    ${roomOver ? 'BEBAN TINGGI' : 'Normal'}
+                                </span>
+                                <button onclick="deleteRoom(${jsArg(room.id)})" class="text-slate-400 hover:text-red-600 text-xs" title="Hapus Ruangan">
+                                    <i class="fa-solid fa-trash-can"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <p class="text-xs text-slate-500 mb-2">
+                            Daya Ruangan: <strong class="text-slate-700">${roomPower} Watt</strong>
+                        </p>
+                        <div class="bg-slate-50 rounded-lg p-2.5 mb-3">
+                            ${appsHTML || '<div class="text-[11px] text-slate-400 text-center py-2">Belum ada alat</div>'}
+                        </div>
+                    </div>
+                    <button onclick="openAppModal(${jsArg(room.id)},${jsArg(room.name)})" class="w-full bg-slate-100 hover:bg-indigo-50 text-indigo-600 text-xs py-1.5 rounded-lg font-medium">
+                        + Tambah Alat ke ${escapeHTML(room.name)}
+                    </button>
+                `;
+
+                container.append(card);
+            });
+
+            const percent = totalPower / maxCapacity * 100;
+            const bar = document.getElementById('power-bar');
+
+            bar.style.width = Math.min(percent, 100) + '%';
+            document.getElementById('capacity-percent').textContent = Math.round(percent) + '%';
+            document.getElementById('total-power').textContent = totalPower;
+
+            document.getElementById('est-cost').textContent =
+                formatRupiah(totalPower / 1000 * currentTariff);
+
+            document.getElementById('daily-energy').textContent =
+                (totalPower * 24 / 1000).toFixed(2) + ' kWh';
+
+            document.getElementById('daily-cost').textContent =
+                formatRupiah(totalPower / 1000 * 24 * currentTariff);
+
+            document.getElementById('monthly-energy').textContent =
+                (totalPower * 24 * 30 / 1000).toFixed(2) + ' kWh';
+
+            document.getElementById('monthly-cost').textContent =
+                formatRupiah(totalPower / 1000 * 24 * 30 * currentTariff);
+
+            const alertBox = document.getElementById('alert-box');
+            const badge = document.getElementById('grid-status-badge');
+            const location = document.getElementById('error-location-box');
+
+            const overload = totalPower > maxCapacity;
+            const warning = !overload && percent >= 80;
+
+            bar.className = `${overload ? 'bg-red-600' : warning ? 'bg-amber-500' : 'bg-indigo-600'} h-2 rounded-full transition-all duration-300`;
+
+            if (overload) {
+                alertBox.classList.remove('hidden');
+
+                document.getElementById('alert-message').textContent =
+                    `Total beban ${totalPower} W (${Math.round(percent)}%) melampaui kapasitas ${maxCapacity} VA. Lokasi ruangan: ${overloadedRoom || 'Beban berlebih menyeluruh'}.`;
+
+                badge.className = 'px-4 py-1.5 rounded-full text-xs font-semibold bg-red-500 text-white flex items-center gap-2 shadow';
+                badge.textContent = 'Overload / Gangguan';
+
+                location.className = 'mt-1 text-sm font-bold text-red-600';
+                location.textContent = overloadedRoom || 'Beban Berlebih Menyeluruh';
+            } else {
+                alertBox.classList.add('hidden');
+
+                badge.className = `px-4 py-1.5 rounded-full text-xs font-semibold ${warning ? 'bg-amber-500' : 'bg-emerald-500'} text-white flex items-center gap-2 shadow`;
+                badge.textContent = warning ? 'Sistem Waspada' : 'Sistem Normal';
+
+                location.className = `mt-1 text-sm font-bold ${warning ? 'text-amber-600' : 'text-emerald-600'}`;
+                location.textContent = warning ? 'Kapasitas terpakai ≥ 80%' : 'Tidak ada gangguan';
+            }
+
+            renderRoomChart();
+            renderBreakdown();
+
+            if (addSample) updateHistory(totalPower);
+            saveData();
+        }
+
+        function toggleAppliance(roomId, index) {
+            const room = rooms.find(r => r.id === roomId);
+            if (!room || !room.appliances[index]) return;
+
+            const app = room.appliances[index];
+            app.active = !app.active;
+
+            addLog(`${app.name} di ${room.name} ${app.active ? 'dinyalakan' : 'dimatikan'}.`);
+            renderApp();
+        }
+
+        function openRoomModal() {
+            document.getElementById('roomModal').classList.remove('hidden');
+        }
+
+        function closeRoomModal() {
+            document.getElementById('roomModal').classList.add('hidden');
+        }
+
+        function saveNewRoom() {
+            const input = document.getElementById('newRoomName');
+            const name = input.value.trim();
+            const icon = document.getElementById('newRoomIcon').value;
+
+            if (!name) {
+                alert('Nama ruangan harus diisi.');
+                return;
+            }
+
+            let id = name.toLowerCase().normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .replace(/[^a-z0-9]+/g, '-')
+                .replace(/^-|-$/g, '');
+
+            if (!id) id = 'ruangan';
+
+            let base = id;
+            let n = 2;
+
+            while (rooms.some(r => r.id === id)) {
+                id = base + '-' + n++;
+            }
+
+            rooms.push({ id, name, icon, appliances: [] });
+
+            closeRoomModal();
+            input.value = '';
+
+            addLog(`Ruangan ${name} ditambahkan.`, 'success');
+            renderApp();
+        }
+
+        function deleteRoom(roomId) {
+            if (!confirm('Hapus ruangan beserta seluruh peralatannya?')) return;
+
+            rooms = rooms.filter(r => r.id !== roomId);
+
+            addLog('Satu ruangan beserta peralatannya dihapus.', 'danger');
+            renderApp();
+        }
+
+        function openAppModal(roomId, roomName) {
+            document.getElementById('targetRoomId').value = roomId;
+            document.getElementById('targetRoomName').textContent = roomName;
+            document.getElementById('applianceModal').classList.remove('hidden');
+        }
+
+        function closeAppModal() {
+            document.getElementById('applianceModal').classList.add('hidden');
+        }
+
+        function saveNewAppliance() {
+            const roomId = document.getElementById('targetRoomId').value;
+            const nameInput = document.getElementById('newAppName');
+            const powerInput = document.getElementById('newAppPower');
+
+            const name = nameInput.value.trim();
+            const power = Number(powerInput.value);
+            const essential = document.getElementById('newAppEssential').checked;
+            const priority = Number(document.getElementById('newAppPriority').value);
+
+            if (!name || !Number.isFinite(power) || power <= 0 || !Number.isInteger(power)) {
+                alert('Isi nama dan daya dengan bilangan bulat lebih dari 0 Watt.');
+                return;
+            }
+
+            const room = rooms.find(r => r.id === roomId);
+            if (!room) return;
+
+            room.appliances.push({
+                name,
+                power,
+                active: false,
+                essential,
+                priority
+            });
+
+            closeAppModal();
+            nameInput.value = '';
+            powerInput.value = '';
+
+            document.getElementById('newAppEssential').checked = false;
+            document.getElementById('newAppPriority').value = '2';
+
+            addLog(`${name} (${power} W) ditambahkan ke ${room.name}.`, 'success');
+            renderApp();
+        }
+
+        function deleteAppliance(roomId, index) {
+            const room = rooms.find(r => r.id === roomId);
+            if (!room || !room.appliances[index]) return;
+
+            const name = room.appliances[index].name;
+            room.appliances.splice(index, 1);
+
+            addLog(`${name} dihapus dari ${room.name}.`, 'danger');
+            renderApp();
+        }
+
+        function changePriority(roomId, index, value) {
+            const room = rooms.find(r => r.id === roomId);
+            if (!room || !room.appliances[index]) return;
+
+            const app = room.appliances[index];
+            if (app.essential) return;
+
+            app.priority = Math.min(3, Math.max(1, Number(value) || 2));
+
+            addLog(`Prioritas pemutusan ${app.name} diubah menjadi ${app.priority}.`);
+            renderApp(false);
+        }
+
+        function runMitigation() {
+            let total = getTotalPower();
+            const switched = [];
+            const candidates = [];
+
+            rooms.forEach(room => {
+                (room.appliances || []).forEach(app => {
+                    if (app.active && !app.essential) {
+                        candidates.push({ room, app });
+                    }
+                });
+            });
+
+            candidates.sort((a, b) =>
+                (Number(a.app.priority) || 2) - (Number(b.app.priority) || 2) ||
+                b.app.power - a.app.power
+            );
+
+            for (const item of candidates) {
+                if (total <= maxCapacity) break;
+
+                item.app.active = false;
+                total -= item.app.power;
+
+                switched.push(item.app.name + ' (' + item.room.name + ')');
+            }
+
+            if (!switched.length) {
+                addLog('Mitigasi tidak memutus beban: tidak ada beban non-esensial aktif yang dapat dilepas.', 'danger');
+            } else if (total <= maxCapacity) {
+                addLog(`Load shedding memutus ${switched.join(', ')}. Beban turun menjadi ${total} W dan kembali dalam batas kapasitas.`, 'success');
+            } else {
+                addLog(`Load shedding memutus ${switched.join(', ')}. Beban tersisa ${total} W, masih melebihi kapasitas ${maxCapacity} VA; beban esensial dipertahankan.`, 'danger');
+            }
+
+            renderApp();
+        }
+
+        function toggleAutoMonitor() {
+            const button = document.getElementById('auto-monitor-btn');
+
+            if (autoMonitorTimer) {
+                clearInterval(autoMonitorTimer);
+                autoMonitorTimer = null;
+
+                button.textContent = 'Mulai';
+                button.className = 'px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-semibold';
+
+                addLog('Auto-monitor dihentikan.');
+            } else {
+                autoMonitorTimer = setInterval(() => {
+                    updateHistory(getTotalPower());
+                }, 5000);
+
+                button.textContent = 'Hentikan';
+                button.className = 'px-3 py-1.5 rounded-lg bg-red-600 text-white text-xs font-semibold';
+
+                addLog('Auto-monitor simulasi dimulai (interval 5 detik).', 'success');
+            }
+        }
+
+        function resetToDefaultData() {
+            if (!confirm('Reset seluruh data dan pengaturan ke konfigurasi awal?')) return;
+
+            if (autoMonitorTimer) {
+                clearInterval(autoMonitorTimer);
+                autoMonitorTimer = null;
+            }
+
+            document.getElementById('auto-monitor-btn').textContent = 'Mulai';
+
+            rooms = cloneDefaults();
+
+            document.getElementById('capacity-select').value = DEFAULT_CAPACITY;
+            maxCapacity = tariffMap[DEFAULT_CAPACITY].capacity;
+            currentTariff = tariffMap[DEFAULT_CAPACITY].tariff;
+
+            document.getElementById('max-capacity-label').textContent = maxCapacity;
+            document.getElementById('tariff-label').textContent =
+                `Tarif asumsi: ${formatRupiah(currentTariff)} / kWh`;
+
+            logs = [];
+            document.getElementById('log-container').innerHTML =
+                '<div class="text-xs text-slate-400 text-center py-4">Belum ada aktivitas tercatat.</div>';
+
+            if (powerChart) {
+                powerChart.data.labels = [];
+                powerChart.data.datasets[0].data = [];
+            }
+
+            addLog('Data dan pengaturan dikembalikan ke konfigurasi awal.', 'info');
+            renderApp();
+        }
+
+        initCharts();
+        document.getElementById('capacity-select').value = DEFAULT_CAPACITY;
+        changeCapacity(false);
+    </script>
+</body>
+</html>
